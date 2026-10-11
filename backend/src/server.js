@@ -153,7 +153,9 @@ app.get("/api/doctors/:id/slots", async (req, res) => {
         is_available
       FROM appointment_slots
       WHERE doctor_id = $1
-        AND is_available = TRUE
+  	AND is_available = TRUE
+  	AND (slot_date + start_time)
+	    > (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Ho_Chi_Minh')
     `;
 
     const params = [doctorId];
@@ -344,9 +346,13 @@ app.post("/api/appointments", async (req, res) => {
     const slotResult = await client.query(
       `
       SELECT
-        id,
-        doctor_id,
-        is_available
+  	id,
+	doctor_id,
+	is_available,
+  	(
+    	  (slot_date + start_time)
+    	  > (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Ho_Chi_Minh')
+  	) AS is_future
       FROM appointment_slots
       WHERE id = $1
       FOR UPDATE
@@ -363,7 +369,13 @@ app.post("/api/appointments", async (req, res) => {
     }
 
     const slot = slotResult.rows[0];
+    if (!slot.is_future) {
+  await client.query("ROLLBACK");
 
+  return res.status(400).json({
+    error: "Khung giờ đã qua, vui lòng chọn thời gian khác"
+  });
+    }
     if (!slot.is_available) {
       await client.query("ROLLBACK");
 
