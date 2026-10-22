@@ -223,6 +223,8 @@ app.post("/api/patients", async (req, res) => {
       `
       SELECT
         u.id AS user_id,
+        u.full_name,
+        u.phone,
         p.id AS patient_id
       FROM users u
       LEFT JOIN patients p
@@ -237,22 +239,27 @@ app.post("/api/patients", async (req, res) => {
     if (existingUser.rows.length > 0) {
       const patient = existingUser.rows[0];
 
-      // Cập nhật thông tin mới nhất
-      await client.query(
-        `
-        UPDATE users
-        SET
-          full_name = $1,
-          phone = $2,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = $3
-        `,
-        [
-          full_name.trim(),
-          phone.trim(),
-          patient.user_id
-        ]
-      );
+      const normalizeName = value =>
+        String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase("vi");
+      const normalizePhone = value =>
+        String(value || "").replace(/[\s().-]/g, "").replace(/^\+84/, "0");
+
+      if (
+        normalizeName(patient.full_name) !== normalizeName(full_name) ||
+        normalizePhone(patient.phone) !== normalizePhone(phone)
+      ) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: "Thông tin không khớp hồ sơ đã đăng ký bằng email này. Vui lòng kiểm tra họ tên, số điện thoại hoặc liên hệ phòng khám."
+        });
+      }
+
+      if (!patient.patient_id) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: "Hồ sơ bệnh nhân chưa đầy đủ. Vui lòng liên hệ phòng khám."
+        });
+      }
 
       await client.query("COMMIT");
 

@@ -10,6 +10,22 @@ const confirmation = document.getElementById("confirmation");
 const confirmationContent = document.getElementById("confirmation-content");
 
 let selectedSlot = null;
+
+function clearBookingResult() {
+    confirmation.classList.add("hidden");
+    confirmationContent.replaceChildren();
+    message.textContent = "";
+    message.className = "message hidden";
+}
+
+function addConfirmationLine(label, value) {
+    const paragraph = document.createElement("p");
+    const title = document.createElement("strong");
+    title.textContent = label + ": ";
+    paragraph.append(title, document.createTextNode(String(value ?? "")));
+    confirmationContent.appendChild(paragraph);
+}
+
 dateInput.min = getTodayVietnam();
 let services = [];
 let doctors = [];
@@ -228,6 +244,7 @@ async function loadSlots() {
 // Booking
 // =========================
 async function createAppointment() {
+    clearBookingResult();
     const serviceId = serviceSelect.value;
     const doctorId = doctorSelect.value;
     const patientName =
@@ -253,6 +270,22 @@ async function createAppointment() {
         showMessage("Vui lòng nhập đầy đủ thông tin khách hàng.", "error");
         return;
     }
+
+    if (!isFutureSlot(dateInput.value, selectedSlot.start_time)) {
+        showMessage("Khung giờ đã qua. Vui lòng chọn giờ khác.", "error");
+        await loadSlots();
+        return;
+    }
+
+    // Giữ thông tin của chính lượt đặt này trong khi chờ API.
+    const bookedSlot = { ...selectedSlot };
+    const bookedDate = dateInput.value;
+    const bookedService = services.find(
+        item => String(item.id) === String(serviceId)
+    );
+    const bookedDoctor = doctors.find(
+        item => String(item.id) === String(doctorId)
+    );
 
     bookingButton.disabled = true;
     bookingButton.textContent = "Đang xử lý...";
@@ -295,7 +328,7 @@ async function createAppointment() {
             patient_id: patientId,
             doctor_id: Number(doctorId),
             service_id: Number(serviceId),
-            slot_id: Number(selectedSlot.id),
+            slot_id: Number(bookedSlot.id),
             reason: reason || "Đặt lịch khám"
         })
     });
@@ -310,18 +343,20 @@ async function createAppointment() {
 
         confirmation.classList.remove("hidden");
 
-        confirmationContent.innerHTML = `
-            <p><strong>Mã lịch hẹn:</strong> ${data.appointment.id}</p>
-            <p><strong>Trạng thái:</strong> Chờ xác nhận</p>
-            <p><strong>Khách hàng:</strong> ${patientName}</p>
-            <p><strong>Số điện thoại:</strong> ${patientPhone}</p>
-            <p><strong>Email:</strong> ${patientEmail}</p>
-            <p><strong>Khung giờ:</strong>
-                ${selectedSlot.start_time.slice(0, 5)}
-                -
-                ${selectedSlot.end_time.slice(0, 5)}
-            </p>
-        `;
+        confirmationContent.replaceChildren();
+        addConfirmationLine("Mã lịch hẹn", data.appointment.id);
+        addConfirmationLine("Trạng thái", "Chờ phòng khám xác nhận");
+        addConfirmationLine("Khách hàng", patientName);
+        addConfirmationLine("Số điện thoại", patientPhone);
+        addConfirmationLine("Email", patientEmail);
+        addConfirmationLine("Dịch vụ", bookedService?.name || serviceId);
+        addConfirmationLine("Bác sĩ", bookedDoctor?.full_name || doctorId);
+        addConfirmationLine("Ngày khám", bookedDate.split("-").reverse().join("/"));
+        addConfirmationLine(
+            "Khung giờ",
+            bookedSlot.start_time.slice(0, 5) + " - " +
+            bookedSlot.end_time.slice(0, 5)
+        );
 
         await loadSlots();
 
@@ -348,6 +383,20 @@ serviceSelect.addEventListener("change", filterDoctorsByService);
 doctorSelect.addEventListener("change", loadSlots);
 dateInput.addEventListener("change", loadSlots);
 bookingButton.addEventListener("click", createAppointment);
+
+[serviceSelect, doctorSelect, dateInput].forEach(element => {
+    element.addEventListener("change", clearBookingResult);
+});
+
+["patient-name", "patient-phone", "patient-email", "reason"].forEach(id => {
+    document.getElementById(id)?.addEventListener("input", clearBookingResult);
+});
+
+// Xóa kết quả cũ khi bấm quay lại đặt lịch.
+confirmation.addEventListener("click", event => {
+    if (event.target.closest("a, button")) clearBookingResult();
+});
+
 
 // =========================
 // Initial load
