@@ -1,4 +1,3 @@
-
 services:
   backend:
     build:
@@ -23,7 +22,8 @@ services:
         condition: service_healthy
 
     networks:
-      - clinic_network
+      - app_net
+      - edge_net
   postgres:
     image: postgres:16-alpine
     container_name: clinic_postgres
@@ -38,7 +38,8 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     networks:
-      - clinic_network
+      - app_net
+      - admin_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
@@ -60,7 +61,7 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - clinic_network
+      - admin_net
 
   nginx:
     image: nginx:alpine
@@ -78,7 +79,8 @@ services:
       - backend
 
     networks:
-      - clinic_network
+      - edge_net
+      - monitoring_net
 
   prometheus:
     image: prom/prometheus:latest
@@ -92,7 +94,8 @@ services:
     ports:
       - "192.168.244.130:9091:9090"
     networks:
-      - clinic_network
+      - monitoring_net
+      - edge_net
 
   grafana:
     image: grafana/grafana:latest
@@ -103,27 +106,26 @@ services:
     ports:
       - "192.168.244.130:3001:3000"
     networks:
-      - clinic_network
+      - monitoring_net
 
   node-exporter:
     image: prom/node-exporter:latest
     container_name: clinic_node_exporter
     restart: unless-stopped
     networks:
-      - clinic_network
+      - monitoring_net
 
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: clinic_cadvisor
     restart: unless-stopped
-    privileged: true
     volumes:
       - /:/rootfs:ro
       - /var/run:/var/run:ro
       - /sys:/sys:ro
       - /var/lib/docker/:/var/lib/docker:ro
     networks:
-      - clinic_network
+      - monitoring_net
 
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:latest
@@ -135,14 +137,16 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - clinic_network
+      - monitoring_net
+      - app_net
 
   blackbox-exporter:
     image: prom/blackbox-exporter:latest
     container_name: clinic_blackbox_exporter
     restart: unless-stopped
     networks:
-      - clinic_network
+      - monitoring_net
+      - edge_net
 
   loki:
     image: grafana/loki:latest
@@ -155,7 +159,7 @@ services:
     ports:
       - "192.168.244.130:3100:3100"
     networks:
-      - clinic_network
+      - monitoring_net
 
   promtail:
     image: grafana/promtail:latest
@@ -169,7 +173,7 @@ services:
     depends_on:
       - loki
     networks:
-      - clinic_network
+      - monitoring_net
 
 volumes:
   postgres_data:
@@ -179,5 +183,15 @@ volumes:
   loki_data:
 
 networks:
-  clinic_network:
+  app_net:
+    driver: bridge
+    internal: true
+
+  edge_net:
+    driver: bridge
+
+  admin_net:
+    driver: bridge
+
+  monitoring_net:
     driver: bridge
