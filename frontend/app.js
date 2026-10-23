@@ -124,17 +124,10 @@ function filterDoctorsByService() {
         return;
     }
 
-    const serviceToSpecialty = {
-        "1": "1",
-        "2": "2",
-        "3": "3",
-        "4": "4"
-    };
-
-    const specialtyId = serviceToSpecialty[serviceId];
-
     const filteredDoctors = doctors.filter(
-        doctor => String(doctor.specialty_id) === specialtyId
+        doctor => (doctor.service_ids || []).some(
+            id => String(id) === String(serviceId)
+        )
     );
 
     if (filteredDoctors.length === 0) {

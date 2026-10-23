@@ -46,7 +46,7 @@ Các dịch vụ được phân chia vào những mạng Docker riêng theo ch�
 ## 3. Yêu cầu môi trường
 
 - Máy Linux có Docker Engine và Docker Compose plugin.
-- Git.
+- Git và OpenSSL.
 - Các cổng triển khai không bị ứng dụng khác chiếm.
 
 Kiểm tra:
@@ -70,6 +70,11 @@ Chỉnh `.env`:
 POSTGRES_DB=clinic_db
 POSTGRES_USER=clinic_user
 POSTGRES_PASSWORD=<mat_khau_DB_manh>
+APP_DB_USER=clinic_app
+APP_DB_PASSWORD=<mat_khau_ung_dung_rieng>
+MONITOR_DB_USER=clinic_monitor
+MONITOR_DB_PASSWORD=<mat_khau_giam_sat_rieng>
+GRAFANA_ADMIN_PASSWORD=<mat_khau_Grafana_manh>
 
 PGADMIN_DEFAULT_EMAIL=<email_quan_tri>
 PGADMIN_DEFAULT_PASSWORD=<mat_khau_pgAdmin_manh>
@@ -91,23 +96,31 @@ Không commit `.env` lên GitHub.
 
 ## 5. Khởi động
 
+Trước lần khởi động đầu tiên, chạy:
+    sh scripts/create-certs.sh 192.168.244.130
+
+Nếu đổi IP máy triển khai, cập nhật IP trong Compose và chứng chỉ.
+Chứng chỉ tự ký có thể khiến trình duyệt cảnh báo chưa tin cậy.
+Không đưa khóa riêng nginx/certs/selfsigned.key lên GitHub.
+
+
 ```bash
 docker compose config --quiet
 docker compose up -d --build
 docker compose ps -a
 ```
 
-PostgreSQL chạy `init.sql` khi khởi tạo volume dữ liệu mới.
-File này tạo bảng và index.
+Khi volume PostgreSQL mới còn trống, các script tự chạy theo thứ tự:
+1. init.sql tạo bảng và index.
+2. database/02-roles.sh tạo role và cấp quyền.
+3. database/seed.sql nạp dữ liệu mẫu.
+4. database/04-trigger.sql tạo trigger chặn giờ quá khứ.
+5. database/05-doctor-services.sql tạo quan hệ bác sĩ và dịch vụ.
+6. database/06-consultation-doctor.sql thêm bác sĩ tư vấn và khung giờ.
 
-Dữ liệu mẫu trong `database/seed.sql` chưa được Compose
-tự động nạp. Với database mới, sau khi PostgreSQL sẵn sàng:
-
-```bash
-docker exec -i clinic_postgres sh -c \
-  'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
-  < database/seed.sql
-```
+Database đã tồn tại không tự chạy lại các script khởi tạo.
+Cần sao lưu và áp dụng cập nhật phù hợp cho database cũ.
+Không xóa volume dữ liệu để chạy lại các script.
 
 Seed cung cấp dữ liệu demo và một số khung giờ theo ngày
 tương đối tại thời điểm chạy. Không bảo đảm mọi bác sĩ có lịch
@@ -121,7 +134,8 @@ Các URL dưới đây dùng IP của máy demo:
 
 | Dịch vụ | URL |
 |---|---|
-| Website | http://192.168.244.130:8080 |
+| Website HTTP | http://192.168.244.130:8080 |
+| Website HTTPS | https://192.168.244.130:8443 |
 | pgAdmin | http://192.168.244.130:5050 |
 | Grafana | http://192.168.244.130:3001 |
 | Prometheus | http://192.168.244.130:9091 |
@@ -182,9 +196,9 @@ Datasource Loki:
 http://loki:3100
 ```
 
-Đăng nhập Grafana bằng tài khoản quản trị đã thiết lập.
-Với cài đặt mới dùng thông tin mặc định của image, đổi mật khẩu
-quản trị ngay sau khi đăng nhập lần đầu.
+Với volume Grafana mới, username là admin và mật khẩu lấy từ
+GRAFANA_ADMIN_PASSWORD trong .env. Thay biến này không tự đổi
+mật khẩu tài khoản đã tồn tại trong volume Grafana.
 
 Import dashboard:
 
@@ -222,8 +236,11 @@ probe_success{job="clinic-web"}
 Giá trị `1` lần lượt thể hiện scrape thành công, exporter
 kết nối được PostgreSQL và probe website thành công.
 
-Blackbox hiện kiểm tra trang chủ Nginx; kết quả này không
-thay thế kiểm tra backend và kết nối DB.
+Blackbox kiểm tra trang chủ Nginx và API /health.
+Dùng probe_success để kiểm tra cả clinic-web và clinic-api.
+up = 1 chỉ thể hiện scrape thành công.
+probe_success = 1 thể hiện probe đích thành công.
+API /health kiểm tra kết nối database bằng SELECT 1.
 
 ## 9. Log tập trung
 
@@ -294,8 +311,8 @@ Kiểm tra target cAdvisor tại giao diện Prometheus, mục **Status → Targ
 
 ### 10.3. Những điểm cần lưu ý
 
-- Các giao diện pgAdmin, Prometheus, Grafana và Loki đang được công khai trên địa chỉ mạng của máy triển khai. Cần giới hạn máy được phép truy cập bằng tường lửa và sử dụng cơ chế xác thực phù hợp.
-- Loki chưa bật xác thực theo cấu hình đã mô tả; không nên công khai dịch vụ này trên mạng không tin cậy.
+- Các giao diện pgAdmin, Prometheus và Grafana đang được công khai trên địa chỉ mạng của máy triển khai. Cần giới hạn máy được phép truy cập bằng tường lửa và sử dụng cơ chế xác thực phù hợp.
+- Loki không publish cổng ra host; Grafana và Promtail truy cập qua mạng Docker. Loki chưa bật xác thực tại dịch vụ.
 - Promtail có quyền truy cập nguồn log Docker. Cần giới hạn quyền truy cập và chỉ mount những tài nguyên thực sự cần thiết.
 - Không đưa mật khẩu, khóa API hoặc thông tin bí mật vào GitHub.
 - Hệ thống hiện phục vụ mục đích học tập và demo; cần đánh giá thêm quyền truy cập API, xác thực và phân quyền trước khi triển khai thực tế.
@@ -330,10 +347,8 @@ docker compose down
 
 Không dùng `docker compose down -v` nếu cần giữ dữ liệu.
 
-Database đang demo có trigger `clinic_future_appointment`
-chặn thời gian đã qua. Trigger này chưa được lưu trong các
-file SQL đã kiểm tra của repo, nên DB mới chưa tự có trigger.
-Backend vẫn có kiểm tra thời gian riêng.
+Trigger clinic_future_appointment được lưu trong database/04-trigger.sql
+và tự tạo khi khởi tạo database mới. Backend cũng kiểm tra giờ quá khứ.
 
 Dashboard và datasource đang chạy được lưu trong volume
 Grafana. File JSON cần được import và liên kết datasource
