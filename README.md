@@ -1,5 +1,5 @@
-DTC245280015
-Nguyen Thi Khanh Hoa
+# DTC245280015
+# Nguyen Thi Khanh Hoa
 # Đề 40 — Hệ thống đặt lịch hẹn phòng khám
 
 Website đặt lịch khám theo dịch vụ, bác sĩ và khung giờ.
@@ -40,6 +40,8 @@ Các exporter:
 | Node Exporter | Metrics hệ thống trong môi trường đã cấu hình |
 | PostgreSQL Exporter | Metrics PostgreSQL |
 | Blackbox Exporter | Kiểm tra HTTP của website |
+
+Các dịch vụ được phân chia vào những mạng Docker riêng theo chức năng ứng dụng, quản trị và giám sát nhằm hạn chế kết nối không cần thiết giữa các dịch vụ.
 
 ## 3. Yêu cầu môi trường
 
@@ -246,29 +248,57 @@ Chọn khoảng thời gian có hoạt động, ví dụ Last 30 minutes.
 
 ## 10. Các biện pháp hardening đã áp dụng
 
-- Backend chạy bằng user `node`, không phải root.
-- Cổng backend và PostgreSQL chỉ bind trên localhost.
-- Dịch vụ giao tiếp qua Docker bridge network của dự án.
-- Frontend và file cấu hình được mount chỉ đọc.
-- `.env` được loại khỏi Git.
-- Nginx có X-Frame-Options, X-Content-Type-Options,
-  Referrer-Policy và Content-Security-Policy.
+### 10.1. Các biện pháp đã áp dụng
 
-Kiểm tra headers:
+- Giới hạn quyền backend:Backend chạy bằng tài khoản `node`, không chạy bằng quyền root.
+- Giới hạn cổng truy cập: Backend và PostgreSQL chỉ bind cổng host trên địa chỉ `127.0.0.1`.
+- Phân tách mạng Docker: Các dịch vụ được phân chia vào các mạng theo chức năng ứng dụng, quản trị và giám sát nhằm hạn chế kết nối không cần thiết.
+- Bảo vệ thông tin cấu hình: Tệp `.env` được Git bỏ qua để tránh đưa thông tin nhạy cảm lên kho mã nguồn.
+- Bảo vệ giao diện web: Nginx được cấu hình các HTTP Security Headers, gồm `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy` và `Content-Security-Policy`.
+- Giảm quyền cAdvisor: cAdvisor không chạy ở chế độ `privileged`. Kết quả kiểm tra xác nhận `privileged=false`.
+- Kiểm tra giám sát: Container cAdvisor ở trạng thái `healthy`; Prometheus ghi nhận target `cadvisor` ở trạng thái `up`.
+
+### 10.2. Kiểm tra cấu hình bảo mật
+
+Kiểm tra cấu hình Docker Compose:
+
+```bash
+docker compose config --quiet
+```
+
+Kiểm tra các HTTP Security Headers:
 
 ```bash
 curl -I http://192.168.244.130:8080/
 ```
 
-Giới hạn hiện tại:
+Kiểm tra quyền của cAdvisor:
 
-- Tất cả dịch vụ dùng chung một Docker network.
-- cAdvisor có quyền privileged.
-- Promtail truy cập Docker socket.
-- Loki không bật xác thực và có cổng truy cập từ LAN.
-- API cập nhật trạng thái lịch hẹn chưa kiểm tra quyền.
-- Tài khoản mẫu dùng password hash demo, không phục vụ
-  chức năng đăng nhập thật.
+```bash
+docker inspect -f 'privileged={{.HostConfig.Privileged}}' clinic_cadvisor
+```
+
+Kết quả mong đợi:
+
+```text
+privileged=false
+```
+
+Kiểm tra trạng thái các container:
+
+```bash
+docker compose ps
+```
+
+Kiểm tra target cAdvisor tại giao diện Prometheus, mục **Status → Targets**. Target `cadvisor` cần có trạng thái `UP`.
+
+### 10.3. Những điểm cần lưu ý
+
+- Các giao diện pgAdmin, Prometheus, Grafana và Loki đang được công khai trên địa chỉ mạng của máy triển khai. Cần giới hạn máy được phép truy cập bằng tường lửa và sử dụng cơ chế xác thực phù hợp.
+- Loki chưa bật xác thực theo cấu hình đã mô tả; không nên công khai dịch vụ này trên mạng không tin cậy.
+- Promtail có quyền truy cập nguồn log Docker. Cần giới hạn quyền truy cập và chỉ mount những tài nguyên thực sự cần thiết.
+- Không đưa mật khẩu, khóa API hoặc thông tin bí mật vào GitHub.
+- Hệ thống hiện phục vụ mục đích học tập và demo; cần đánh giá thêm quyền truy cập API, xác thực và phân quyền trước khi triển khai thực tế.
 
 ## 11. Kiểm thử và demo
 
