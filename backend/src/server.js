@@ -106,7 +106,13 @@ app.get("/api/doctors", async (req, res) => {
         s.name AS specialty_name,
         d.qualification,
         d.experience_years,
-        d.consultation_fee
+        d.consultation_fee,
+        ARRAY(
+          SELECT ds.service_id
+          FROM doctor_services ds
+          WHERE ds.doctor_id = d.id
+          ORDER BY ds.service_id
+        ) AS service_ids
       FROM doctors d
       JOIN users u
         ON u.id = d.user_id
@@ -350,6 +356,25 @@ app.post("/api/appointments", async (req, res) => {
      * Khóa slot để tránh hai người
      * đặt cùng một khung giờ.
      */
+    const assignment = await client.query(
+      `
+      SELECT 1
+      FROM doctor_services ds
+      JOIN services s ON s.id = ds.service_id
+      WHERE ds.doctor_id = $1
+        AND ds.service_id = $2
+        AND s.is_active = TRUE
+      `,
+      [doctor_id, service_id]
+    );
+
+    if (assignment.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        error: "Bác sĩ không thực hiện dịch vụ đã chọn hoặc dịch vụ đã ngừng hoạt động"
+      });
+    }
+
     const slotResult = await client.query(
       `
       SELECT

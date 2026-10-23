@@ -55,6 +55,8 @@ services:
       - ./database/02-roles.sh:/docker-entrypoint-initdb.d/02-roles.sh:ro
       - ./database/seed.sql:/docker-entrypoint-initdb.d/03-seed.sql:ro
       - ./database/04-trigger.sql:/docker-entrypoint-initdb.d/04-trigger.sql:ro
+      - ./database/05-doctor-services.sql:/docker-entrypoint-initdb.d/05-doctor-services.sql:ro
+      - ./database/06-consultation-doctor.sql:/docker-entrypoint-initdb.d/06-consultation-doctor.sql:ro
     networks:
       - app_net
       - admin_net
